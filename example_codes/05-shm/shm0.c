@@ -1,63 +1,71 @@
-/* 
-Este programa en C demuestra el uso de memoria compartida entre procesos en sistemas Unix.
-El proceso padre crea un segmento de memoria compartida y luego crea un proceso hijo.
-Ambos procesos incrementan un contador en la memoria compartida un número determinado de veces.
-Al final, el proceso padre espera a que el hijo termine y luego imprime el valor acumulado
-de los contadores.
+/*
+ * shm0.c — Memoria compartida sin conflicto: un contador por proceso
+ *
+ * El padre crea un segmento de memoria compartida con dos enteros y luego
+ * crea un hijo. Cada proceso incrementa SU propio entero, así que nunca
+ * escriben en la misma posición y el resultado siempre es exacto.
+ *
+ * Ciclo de vida de un segmento System V:
+ *   shmget  crea el segmento (o obtiene uno existente) y devuelve su id
+ *   shmat   lo conecta al espacio de direcciones del proceso
+ *   shmdt   lo desconecta
+ *   shmctl  con IPC_RMID lo marca para borrarlo
+ *
+ * Observe: siempre imprime 2 x ITER. Compare con shm-concurrency.c, donde
+ *          ambos procesos escriben el mismo entero. Con  ipcs -m  puede
+ *          ver los segmentos que existen en el sistema.
+ *
+ * Norma:    System V IPC (shmget, shmat, shmdt, shmctl), POSIX (fork, wait)
+ * Compilar: gcc -Wall -Wextra -o shm0 shm0.c
+ * Ejecutar: ./shm0
+ */
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
 
-Instrucciones para compilar y ejecutar el programa:
-1. Abre una terminal en tu sistema.
-2. Navega al directorio donde guardaste este archivo.
-3. Compila el programa con el siguiente comando:
-   gcc -o shared_memory_example shared_memory_example.c -lrt
-4. Ejecuta el programa compilado:
-   ./shared_memory_example
+#define ITER 10000000
 
-El programa imprimirá el valor acumulado de los contadores después de que ambos procesos
-hayan terminado de incrementar sus respectivos contadores.
-
-*/
-
-#include <stdio.h>    // Para funciones de entrada/salida como printf
-#include <stdlib.h>   // Para EXIT_SUCCESS y EXIT_FAILURE
-#include <unistd.h>   // Para fork(), shmat(), shmdt()
-#include <sys/wait.h> // Para wait()
-#include <sys/shm.h>  // Para shmget(), shmctl(), shmat(), shmdt()
-#include <sys/stat.h> // Para constantes de modo de acceso
-
-int main() {
-    int shmid, max_iter = 10000000;
-    int *pointer = NULL;
-
-    // Crea un segmento de memoria compartida
-    shmid = shmget(IPC_PRIVATE, 2 * sizeof(int), IPC_CREAT | S_IRUSR | S_IWUSR);
-    // Adjunta el segmento de memoria compartida al espacio de direcciones del proceso
-    pointer = (int *)shmat(shmid, 0, 0);
-    // Inicializa los contadores en la memoria compartida
-    pointer[0] = pointer[1] = 0;
-
-    // Crea un proceso hijo
-    if (!fork()) {
-        // Proceso hijo incrementa el contador 0
-        for (int i = 0; i < max_iter; ++i) {
-            pointer[0] = pointer[0] + 1;
-        }
-        // Desadjunta el segmento de memoria compartida
-        shmdt(pointer);
-    } else {
-        // Proceso padre incrementa el contador 1
-        for (int i = 0; i < max_iter; ++i) {
-            pointer[1] = pointer[1] + 1;
-        }
-        // Espera a que el proceso hijo termine
-        wait(NULL);
-        // Imprime el valor acumulado de los contadores
-        printf("the value of shm = [%d] \n", pointer[0] + pointer[1]);
-
-        // Desadjunta y elimina el segmento de memoria compartida
-        shmdt(pointer);
-        shmctl(shmid, IPC_RMID, 0);
+int main(void)
+{
+    int shm_id = shmget(IPC_PRIVATE, 2 * sizeof(int), IPC_CREAT | S_IRUSR | S_IWUSR);
+    if (shm_id == -1) {
+        perror("shmget");
+        exit(EXIT_FAILURE);
     }
 
+    /* volatile: cada incremento lee y escribe la memoria de verdad. */
+    volatile int *contador = shmat(shm_id, NULL, 0);
+    if (contador == (void *)-1) {
+        perror("shmat");
+        exit(EXIT_FAILURE);
+    }
+    contador[0] = contador[1] = 0;
+
+    pid_t pid = fork();
+    if (pid == -1) {
+        perror("fork");
+        exit(EXIT_FAILURE);
+    }
+
+    if (pid == 0) {
+        for (int i = 0; i < ITER; i++)
+            contador[0] = contador[0] + 1;
+        shmdt((const void *)contador);
+        exit(EXIT_SUCCESS);
+    }
+
+    for (int i = 0; i < ITER; i++)
+        contador[1] = contador[1] + 1;
+    wait(NULL);
+
+    printf("hijo=%d padre=%d total=%d (esperado %d)\n",
+           contador[0], contador[1], contador[0] + contador[1], 2 * ITER);
+
+    shmdt((const void *)contador);
+    shmctl(shm_id, IPC_RMID, NULL);
     return EXIT_SUCCESS;
 }

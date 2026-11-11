@@ -1,59 +1,59 @@
 /*
-Programa: Ejemplo de creación de múltiples hilos en C y acceso a una variable global
-Descripción: Este programa crea varios hilos secundarios y les pasa una estructura como argumento.
-             Cada hilo imprime su identificador y el valor entero contenido en la estructura.
-             Además, cada hilo modifica una variable global llamada 'numero'.
-             El programa ilustra el uso de variables globales y cómo pueden ser modificadas por hilos.
-             Existe un problema de condición de carrera ya que varios hilos intentan modificar 'numero' simultáneamente.
-Instrucciones de compilación: gcc -o ejemplo_hilos_multiples ejemplo_hilos_multiples.c -lpthread
-Instrucciones de ejecución: ./ejemplo_hilos_multiples
-*/
+ * Hilos4.c — Error común: todos los hilos reciben la misma dirección
+ *
+ * main() crea N hilos y a todos les pasa la dirección de la MISMA
+ * variable, que modifica en cada vuelta del ciclo. Cada hilo lee el valor
+ * que tenga la variable cuando le toque ejecutarse, no el que tenía al
+ * crearlo. Además, todos escriben la variable global numero sin
+ * protección.
+ *
+ * Observe: quite el usleep() y verá valores repetidos (por ejemplo,
+ *          varios hilos con dato=3). La pausa solo oculta el error.
+ *          Hilos5.c muestra la forma correcta: un dato propio por hilo.
+ *
+ * Norma:    POSIX threads (pthread_create, pthread_join), POSIX (usleep)
+ * Compilar: gcc -Wall -Wextra -pthread -o Hilos4 Hilos4.c
+ * Ejecutar: ./Hilos4
+ */
+#include <pthread.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
 
-#include <stdio.h>      // Incluye funciones estándar de entrada y salida
-#include <unistd.h>     // Proporciona acceso a la API POSIX del sistema operativo
-#include <stdlib.h>     // Incluye la definición de la macro EXIT_SUCCESS
-#include <pthread.h>    // Incluye las funciones y tipos para hilos POSIX
+#define N 4
 
-// Prototipo de la función que será ejecutada por los hilos
-void* funcion_hilo(void* arg);
-
-// Definición de la estructura que se pasará a los hilos
 struct nodo {
-    int a;	
+    int a;
 };
 
-// Declaración de la variable global que será modificada por los hilos
-int numero = 0;
+static int numero = 0;
 
-int main() {
-    int maxhilos = 4; // Número máximo de hilos a crear
-    pthread_t tid[maxhilos]; // Array para almacenar los identificadores de los hilos
-    struct nodo dato; // Variable de la estructura nodo
-
-    // Creación de los hilos secundarios
-    for (int i = 0; i < maxhilos; i++) {
-        dato.a = i; // Asignación del valor a la estructura
-        pthread_create(&tid[i], NULL, funcion_hilo, (void*)&dato);
-        usleep(100); // Pequeña pausa para reducir la condición de carrera
-    }
-
-    printf("Hilo principal[%lu]\n", pthread_self()); // Imprime el identificador del hilo principal
-
-    // Espera a que todos los hilos secundarios terminen
-    for (int i = 0; i < maxhilos; i++) {
-        pthread_join(tid[i], NULL);
-    }
-
-    // Imprime el valor de la variable global después de la ejecución de los hilos
-    printf("%d\n", numero);
-
-    return EXIT_SUCCESS; // Finaliza el programa con éxito
+static void *funcion_hilo(void *arg)
+{
+    const struct nodo *p = arg;
+    printf("Hilo [%lu] dato=%d\n", (unsigned long)pthread_self(), p->a);
+    numero = 500;
+    return NULL;
 }
 
-// Función que será ejecutada por los hilos secundarios
-void* funcion_hilo(void* arg) {
-    struct nodo* p = (struct nodo *)arg; // Conversión del argumento a un puntero a la estructura nodo
-    printf("Hilo [%lu] dato[%d]\n", pthread_self(), p->a); // Imprime el identificador del hilo y el valor de la estructura
-    numero = 500; // Modifica la variable global 'numero'
-    pthread_exit(0); // Termina la ejecución del hilo secundario
+int main(void)
+{
+    pthread_t tid[N];
+    struct nodo dato;
+
+    for (int i = 0; i < N; i++) {
+        dato.a = i;
+        if (pthread_create(&tid[i], NULL, funcion_hilo, &dato) != 0) {
+            fprintf(stderr, "pthread_create falló\n");
+            exit(EXIT_FAILURE);
+        }
+        usleep(100);
+    }
+    printf("Hilo principal [%lu]\n", (unsigned long)pthread_self());
+
+    for (int i = 0; i < N; i++)
+        pthread_join(tid[i], NULL);
+
+    printf("numero=%d\n", numero);
+    return EXIT_SUCCESS;
 }

@@ -1,65 +1,69 @@
 /*
-Este programa en C crea una estructura de procesos en forma de árbol utilizando la función fork().
-El proceso principal (padre) genera tres procesos hijos. El primer y el tercer hijo generan a su vez
-un proceso hijo adicional. Después de la creación de la estructura, el proceso principal imprime el
-árbol de procesos usando el comando 'pstree' y espera a que sus hijos terminen, imprimiendo sus PIDs.
-Los procesos hijos también esperan a sus hijos (si los tienen) e imprimen sus PIDs.
+ * p6-2.c — El árbol de p6.c visto con pstree
+ *
+ *          padre
+ *        /   |   \
+ *      h0    h1    h2
+ *      |           |
+ *      n0          n2
+ *
+ * Misma estructura que p6.c. El padre espera un segundo para que todos
+ * los procesos existan y dibuja el árbol con  pstree -cAlp <pid>. Luego
+ * cada proceso imprime qué hijo recogió con wait().
+ *
+ * Observe: en el árbol también aparece "sh" y "pstree": system() crea
+ *          dos procesos más para ejecutar la orden. Los hijos duermen 2 s
+ *          para seguir vivos mientras se dibuja el árbol.
+ *
+ * Norma:    POSIX (fork, wait), ISO C (system)
+ * Compilar: gcc -Wall -Wextra -o p6-2 p6-2.c
+ * Ejecutar: ./p6-2        (requiere pstree: paquete psmisc)
+ */
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/wait.h>
 
-Instrucciones para compilar y ejecutar el programa:
-1. Abre una terminal en tu sistema.
-2. Navega al directorio donde guardaste este archivo.
-3. Compila el programa con el siguiente comando:
-   gcc -o proceso proceso.c
-4. Ejecuta el programa compilado:
-   ./proceso
+#define N 3
 
-Las librerías incluidas proporcionan las funciones necesarias para la creación y manejo de procesos,
-así como para la entrada/salida estándar.
-*/
-
-#include <stdio.h>      // Para funciones de entrada/salida como printf.
-#include <stdlib.h>     // Para funciones de utilidad general como exit y system.
-#include <sys/types.h>  // Para tipos de datos como pid_t.
-#include <sys/wait.h>   // Para la función wait.
-#include <unistd.h>     // Para la función fork y sleep.
-
-// Función para mostrar el árbol de procesos actual.
-void showtree() {
-    char cmd[20] = {""};
-    sprintf(cmd, "pstree -cAlp %d", getpid()); // Formatea el comando con el PID del proceso actual.
-    system(cmd); // Ejecuta el comando en el shell.
+static void mostrar_arbol(void)
+{
+    char orden[64];
+    snprintf(orden, sizeof orden, "pstree -cAlp %d", (int)getpid());
+    if (system(orden) != 0)
+        fprintf(stderr, "No se pudo ejecutar pstree\n");
 }
 
-int main(void) {
-    pid_t root = getpid(), out; // Almacena el PID del proceso padre original y para la salida de wait.
+int main(void)
+{
+    pid_t raiz = getpid(), recogido;
 
-    // Bucle para crear tres procesos hijos.
-    for (int i = 0; i < 3; i++) {
-        if (!fork()) { // Si es el proceso hijo...
-            if (i == 0 || i == 2) { // El primer y tercer hijo crean su propio hijo.
+    for (int i = 0; i < N; i++) {
+        pid_t pid = fork();
+        if (pid == -1) {
+            perror("fork");
+            exit(EXIT_FAILURE);
+        }
+        if (pid == 0) {
+            if (i == 0 || i == 2)
                 fork();
-            }
-            break; // El hijo no continúa el bucle.
+            break;
         }
     }
 
-    // El proceso padre muestra el árbol de procesos y espera a sus hijos.
-    if (root == getpid()) {
-        sleep(1); // Espera un segundo para que se estabilice la creación de procesos.
-        showtree(); // Muestra el árbol de procesos.
-        // Espera a que terminen los tres hijos directos.
-        for (int j = 0; j < 3; j++) {
-            out = wait(NULL); // Espera a que un proceso hijo termine.
-            printf("p:%d-w:%d\n", getpid(), out); // Imprime el PID del padre y del hijo que terminó.
+    if (getpid() == raiz) {
+        sleep(1);
+        mostrar_arbol();
+        for (int i = 0; i < N; i++) {
+            recogido = wait(NULL);
+            printf("%d recogió a %d\n", (int)getpid(), (int)recogido);
         }
     } else {
-        // Los procesos hijos esperan a sus hijos (si los tienen).
-        out = wait(NULL);
-        if (out != -1) {
-            printf("p:%d-w:%d\n", getpid(), out); // Imprime el PID del hijo y de su hijo que terminó.
-        }
-        sleep(2); // Espera dos segundos.
+        sleep(2);
+        recogido = wait(NULL);
+        if (recogido != -1)
+            printf("%d recogió a %d\n", (int)getpid(), (int)recogido);
     }
 
-    return EXIT_SUCCESS; // Termina el proceso con éxito.
+    return EXIT_SUCCESS;
 }

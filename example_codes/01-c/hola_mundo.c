@@ -1,23 +1,21 @@
-/* 
-Este programa imprime "Hola Mundo" en la consola.
-Utiliza los argumentos de la función main() y retorna EXIT_SUCCESS al finalizar.
+/*
+ * hola_mundo.c — El programa mínimo en C
+ *
+ * main() es el punto de entrada. Su valor de retorno llega al proceso padre
+ * (normalmente la shell) como estado de salida.
+ *
+ * Observe: después de ejecutarlo, escriba  echo $?  para ver el estado
+ *          de salida (0 = EXIT_SUCCESS).
+ *
+ * Norma:    ISO C
+ * Compilar: gcc -Wall -Wextra -o hola_mundo hola_mundo.c
+ * Ejecutar: ./hola_mundo
+ */
+#include <stdio.h>
+#include <stdlib.h>
 
-Para compilar un archivo de código fuente en C usando el compilador gcc, utiliza el siguiente comando:
-gcc hola_mundo.c -o hola_mundo
-Para ejecutar el programa compilado, utiliza el siguiente comando:
-./hola_mundo
-
-Las librerías incluidas proporcionan las funciones necesarias para la entrada/salida estándar y
-para la gestión de la finalización del programa.
-*/
-
-#include <stdio.h>  // Incluye la función printf para la salida estándar.
-#include <stdlib.h> // Incluye la macro EXIT_SUCCESS para la finalización exitosa del programa.
-
-int main(int argc, char *argv[]) {
-    // Imprime "Hola Mundo" en la consola.
-    printf("Hola Mundo\n");
-    
-    // Retorna EXIT_SUCCESS para indicar que el programa finalizó correctamente.
+int main(void)
+{
+    printf("Hola mundo\n");
     return EXIT_SUCCESS;
 }

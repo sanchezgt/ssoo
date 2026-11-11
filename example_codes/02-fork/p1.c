@@ -1,34 +1,37 @@
 /*
-Este programa muestra cómo usar la función fork() en C para crear un proceso hijo.
-El proceso padre crea un proceso hijo utilizando la función fork(). El proceso hijo 
-imprime "Proceso hijo" y el proceso padre imprime "Proceso padre".
-Para compilar y ejecutar este programa, sigue los siguientes pasos:
-1. Abre una terminal.
-2. Navega hasta el directorio donde se encuentra este archivo.
-3. Compila el programa usando el siguiente comando:
-   gcc programa.c -o programa
-4. Ejecuta el programa usando el siguiente comando:
-   ./programa
-*/
-
+ * p1.c — fork(): un programa, dos procesos
+ *
+ * fork() duplica el proceso que la llama. Desde ese punto hay dos
+ * procesos ejecutando el mismo código; lo único que los distingue es el
+ * valor de retorno: 0 en el hijo, el PID del hijo en el padre y -1 si
+ * hubo error (en ese caso no se creó ningún hijo).
+ *
+ * Observe: ejecútelo varias veces. El orden de las dos líneas lo decide
+ *          el planificador, no el programa.
+ *
+ * Norma:    POSIX (fork)
+ * Compilar: gcc -Wall -Wextra -o p1 p1.c
+ * Ejecutar: ./p1
+ */
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys/types.h>
 #include <unistd.h>
 
-int main(void) {
-    pid_t pidchild = fork();
+int main(void)
+{
+    pid_t pid = fork();
 
-    switch (pidchild) {
-        case -1: // Error en la ejecución de fork(), se debe implementar la función manejadora del error
-            perror("Error fork");
-            exit(EXIT_FAILURE);
-        case 0: // Bloque proceso hijo
-            printf("Proceso hijo\n");
-            break;
-        default: // Bloque proceso padre
-            printf("Proceso padre\n");
+    switch (pid) {
+    case -1:
+        perror("fork");
+        exit(EXIT_FAILURE);
+    case 0:
+        printf("Proceso hijo\n");
+        break;
+    default:
+        printf("Proceso padre\n");
+        break;
     }
 
-    return 0;
+    return EXIT_SUCCESS;
 }

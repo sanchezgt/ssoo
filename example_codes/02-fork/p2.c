@@ -1,37 +1,37 @@
 /*
-Este programa muestra cómo usar la función fork() en C para crear un proceso hijo y obtener información 
-sobre los identificadores de proceso (PID) y los identificadores de proceso padre (PPID).
-El proceso padre crea un proceso hijo utilizando la función fork(). El proceso hijo espera 
-100000 microsegundos (0.1 segundos) utilizando usleep() y luego imprime su PID y PPID. 
-El proceso padre también imprime su PID y PPID.
-Para compilar y ejecutar este programa, sigue los siguientes pasos:
-1. Abre una terminal.
-2. Navega hasta el directorio donde se encuentra este archivo.
-3. Compila el programa usando el siguiente comando:
-   gcc programa.c -o programa
-4. Ejecuta el programa usando el siguiente comando:
-   ./programa
-*/
-
+ * p2.c — Proceso huérfano
+ *
+ * El hijo duerme 0,1 s antes de imprimir. Mientras tanto el padre imprime
+ * y termina sin esperarlo, así que el hijo queda huérfano y el sistema lo
+ * reasigna a otro proceso (init o un "subreaper").
+ *
+ * Observe: el PPID que imprime el hijo ya no es el PID del padre. La shell
+ *          muestra el prompt antes de que el hijo escriba. Compare con p3.c.
+ *
+ * Norma:    POSIX (fork, getpid, getppid, usleep)
+ * Compilar: gcc -Wall -Wextra -o p2 p2.c
+ * Ejecutar: ./p2
+ */
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys/types.h>
 #include <unistd.h>
 
-int main(void) {
-    pid_t pidchild = fork();
+int main(void)
+{
+    pid_t pid = fork();
 
-    switch (pidchild) {
-        case -1: // Error en la ejecución de fork(), se debe implementar la función manejadora del error
-            perror("Error fork");
-            exit(EXIT_FAILURE);
-        case 0: // Bloque proceso hijo
-            usleep(100000); // Espera 100000 microsegundos (0.1 segundos)
-            printf("Proceso hijo: pid=%d y ppid=%d\n", getpid(), getppid());
-            break;
-        default: // Bloque proceso padre
-            printf("Proceso padre: pid=%d y ppid=%d\n", getpid(), getppid());
+    switch (pid) {
+    case -1:
+        perror("fork");
+        exit(EXIT_FAILURE);
+    case 0:
+        usleep(100000);
+        printf("Hijo:  pid=%d ppid=%d\n", (int)getpid(), (int)getppid());
+        break;
+    default:
+        printf("Padre: pid=%d ppid=%d\n", (int)getpid(), (int)getppid());
+        break;
     }
 
-    return 0;
+    return EXIT_SUCCESS;
 }

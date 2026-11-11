@@ -1,49 +1,48 @@
-/* 
-Este programa en C demuestra el manejo de señales utilizando la función signal.
-Registra un manejador de señales personalizado para la señal SIGUSR1 y luego
-restaura el manejador de señales predeterminado antes de finalizar el programa.
+/*
+ * s1.c — Instalar y restaurar un manejador
+ *
+ * signal() devuelve el manejador que había antes (o SIG_ERR si falla).
+ * Guardarlo permite restaurar el comportamiento original cuando el
+ * programa ya no necesita su manejador.
+ *
+ * Observe: raise() envía una señal al propio proceso. La primera vez la
+ *          atiende el manejador. Después de restaurar, SIGUSR1 vuelve a
+ *          su acción por defecto (terminar el proceso), por eso no se
+ *          envía de nuevo.
+ *
+ * Norma:    ISO C (signal, raise)
+ * Compilar: gcc -Wall -Wextra -o s1 s1.c
+ * Ejecutar: ./s1
+ */
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
 
-Instrucciones para compilar y ejecutar el programa:
-1. Abre una terminal en tu sistema.
-2. Navega al directorio donde guardaste este archivo.
-3. Compila el programa con el siguiente comando:
-   gcc -o signal_handling signal_handling.c
-4. Ejecuta el programa compilado:
-   ./signal_handling
-5. En otra terminal, encuentra el PID del proceso ejecutado y envía la señal SIGUSR1:
-   kill -SIGUSR1 <PID>
-*/
+static volatile sig_atomic_t recibidas = 0;
 
-#include <stdio.h>    // Para funciones de entrada/salida como printf
-#include <stdlib.h>   // Para EXIT_SUCCESS y EXIT_FAILURE
-#include <signal.h>   // Para signal y SIGUSR1
-
-// Declaración del manejador de señales
-void sighandler(int sig);
-
-int main() {
-    // Guarda el manejador de señales anterior
-    void (*oldhandler)(int);
-
-    // Registra el manejador de señales personalizado para SIGUSR1
-    oldhandler = signal(SIGUSR1, sighandler);
-    if (oldhandler == SIG_ERR) {
-        perror("signal:"); // Imprime un mensaje de error si falla
-        exit(EXIT_FAILURE);
-    }
-
-    // ...código que puede generar o esperar la señal SIGUSR1...
-
-    // Restaura el manejador de señales predeterminado para SIGUSR1
-    if (signal(SIGUSR1, oldhandler) == SIG_ERR) {
-        perror("signal:"); // Imprime un mensaje de error si falla
-        exit(EXIT_FAILURE);
-    }
-
-    return EXIT_SUCCESS; // Indica que el programa terminó exitosamente
+static void manejador(int sig)
+{
+    (void)sig;
+    recibidas++;
 }
 
-// Implementación del manejador de señales personalizado
-void sighandler(int sig) {
-    printf("Señal recibida %d\n", sig);
+int main(void)
+{
+    void (*anterior)(int) = signal(SIGUSR1, manejador);
+    if (anterior == SIG_ERR) {
+        perror("signal");
+        exit(EXIT_FAILURE);
+    }
+    printf("Manejador anterior: %s\n", anterior == SIG_DFL ? "SIG_DFL (por defecto)" : "otro");
+
+    raise(SIGUSR1);
+    printf("SIGUSR1 recibida %d vez\n", (int)recibidas);
+
+    if (signal(SIGUSR1, anterior) == SIG_ERR) {
+        perror("signal");
+        exit(EXIT_FAILURE);
+    }
+    printf("Manejador restaurado\n");
+
+    return EXIT_SUCCESS;
 }

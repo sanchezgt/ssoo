@@ -1,64 +1,43 @@
-/* 
-Este programa en C demuestra el manejo de señales para contar cuántas veces
-se recibe la señal SIGINT (usualmente generada con Ctrl+C en la terminal).
-El programa registra un manejador de señales personalizado que incrementa un contador
-cada vez que se recibe la señal SIGINT. Luego entra en un bucle infinito, imprimiendo
-el número de veces que se ha recibido la señal y pausando por un segundo en cada iteración.
+/*
+ * s2.c — Contar señales
+ *
+ * El manejador incrementa un contador global cada vez que llega SIGINT.
+ * El contador es volatile sig_atomic_t: volatile obliga a leerlo de
+ * memoria en cada vuelta del ciclo, y sig_atomic_t garantiza que se lee
+ * y escribe de una sola vez aunque una señal interrumpa.
+ *
+ * Observe: pulse Ctrl+C varias veces, o envíe la señal desde otra
+ *          terminal con  kill -INT <pid>. Si pulsa muy rápido, puede
+ *          contar menos: las señales pendientes del mismo tipo no se
+ *          acumulan. Para salir use Ctrl+\ (SIGQUIT).
+ *
+ * Norma:    ISO C (signal), POSIX (sleep, kill desde la terminal)
+ * Compilar: gcc -Wall -Wextra -o s2 s2.c
+ * Ejecutar: ./s2
+ */
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
 
-Instrucciones para compilar y ejecutar el programa:
-1. Abre una terminal en tu sistema.
-2. Navega al directorio donde guardaste este archivo.
-3. Compila el programa con el siguiente comando:
-   gcc -o signal_counter signal_counter.c
-4. Ejecuta el programa compilado:
-   ./signal_counter
-5. Para enviar la señal SIGINT al proceso, presiona Ctrl+C en la misma terminal.
-6. Para detener el programa, puedes usar Ctrl+Z y luego matar el proceso con 'kill <PID>'.
+static volatile sig_atomic_t contador = 0;
 
-Nota: El programa no restaura el manejador de señales predeterminado para SIGUSR1 como
-se intenta al final del main, ya que nunca se alcanza esa línea debido al bucle infinito.
-*/
-
-#include <stdio.h>    // Para funciones de entrada/salida como printf
-#include <stdlib.h>   // Para EXIT_SUCCESS y EXIT_FAILURE
-#include <unistd.h>   // Para sleep
-#include <signal.h>   // Para signal y SIGINT
-
-// Declaración de variables globales
-int count = 0; // Contador de señales SIGINT recibidas
-void (*oldhandler)(int); // Puntero a la función del manejador de señales anterior
-
-// Declaración del manejador de señales
-void sighandler(int sig);
-
-int main() {
-    // Registra el manejador de señales personalizado para SIGINT
-    oldhandler = signal(SIGINT, sighandler);
-    if (oldhandler == SIG_ERR) {
-        perror("signal:"); // Imprime un mensaje de error si falla
-        exit(EXIT_FAILURE);
-    }
-
-    // Imprime el PID del proceso para poder enviar señales desde otra terminal
-    printf("[%d]\n", getpid());
-
-    // Bucle infinito que imprime el contador y pausa por un segundo
-    do {
-        printf("%d veces SIGINT recibida\n", count);
-        sleep(1);
-    } while (1);
-
-    // Código inalcanzable: intenta restaurar el manejador de señales predeterminado para SIGUSR1
-    if (signal(SIGUSR1, oldhandler) == SIG_ERR) {
-        perror("signal:"); // Imprime un mensaje de error si falla
-        exit(EXIT_FAILURE);
-    }
-
-    return EXIT_SUCCESS; // Indica que el programa terminó exitosamente
+static void manejador(int sig)
+{
+    (void)sig;
+    contador++;
 }
 
-// Implementación del manejador de señales personalizado
-void sighandler(int sig) {
-    // Incrementa el contador cuando se recibe la señal SIGINT
-    count++;
+int main(void)
+{
+    if (signal(SIGINT, manejador) == SIG_ERR) {
+        perror("signal");
+        exit(EXIT_FAILURE);
+    }
+
+    printf("[%d] Pulse Ctrl+C; Ctrl+\\ para salir\n", (int)getpid());
+    for (;;) {
+        printf("SIGINT recibida %d veces\n", (int)contador);
+        sleep(1);
+    }
 }

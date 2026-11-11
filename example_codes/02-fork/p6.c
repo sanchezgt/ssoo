@@ -1,47 +1,54 @@
 /*
-Este programa en C demuestra la creación de procesos utilizando la función fork(). 
-El proceso principal (padre) crea tres procesos hijos. El primer y el tercer hijo a su vez 
-crean su propio proceso hijo. Al final, el proceso principal espera a que sus tres hijos 
-terminen, mientras que cada hijo espera a su propio hijo, si lo tiene.
+ * p6.c — Árbol de procesos: tres hijos, dos de ellos con un nieto
+ *
+ *          padre
+ *        /   |   \
+ *      h0    h1    h2
+ *      |           |
+ *      n0          n2
+ *
+ * El padre crea tres hijos. El primero y el tercero crean a su vez un
+ * hijo propio. Cada proceso espera a sus hijos directos antes de terminar.
+ *
+ * Observe: wait() solo espera a los hijos directos. En los nietos y en h1
+ *          wait() devuelve -1 de inmediato porque no tienen hijos.
+ *          p6-2.c es la misma estructura, pero dibuja el árbol con pstree.
+ *
+ * Norma:    POSIX (fork, wait)
+ * Compilar: gcc -Wall -Wextra -o p6 p6.c
+ * Ejecutar: ./p6
+ */
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/wait.h>
 
-Instrucciones para compilar y ejecutar el programa:
-1. Abre una terminal en tu sistema.
-2. Navega al directorio donde guardaste este archivo.
-3. Compila el programa con el siguiente comando:
-   gcc -o proceso proceso.c
-4. Ejecuta el programa compilado:
-   ./proceso
+#define N 3
 
-Las librerías incluidas proporcionan las funciones necesarias para la creación y manejo de procesos.
-*/
+int main(void)
+{
+    pid_t raiz = getpid();
 
-#include <stdio.h>      // Incluye las funciones estándar de entrada y salida.
-#include <stdlib.h>     // Incluye las definiciones de macros, constantes y las funciones de manejo de memoria y procesos.
-#include <sys/types.h>  // Incluye definiciones de tipos de datos usados en llamadas al sistema.
-#include <sys/wait.h>   // Incluye las declaraciones para esperar.
-#include <unistd.h>     // Incluye las constantes y declaraciones para llamadas al sistema POSIX.
-
-int main(void) {
-    pid_t root = getpid(); // Almacena el PID del proceso padre original.
-
-    // Crea tres procesos hijos.
-    for (int i = 0; i < 3; i++) {
-        if (!fork()) { // Si es el proceso hijo...
-            if (i == 0 || i == 2) { // El primer y tercer hijo crean su propio hijo.
+    for (int i = 0; i < N; i++) {
+        pid_t pid = fork();
+        if (pid == -1) {
+            perror("fork");
+            exit(EXIT_FAILURE);
+        }
+        if (pid == 0) {
+            if (i == 0 || i == 2)
                 fork();
-            }
-            break; // El hijo no continúa el bucle.
+            break;
         }
     }
 
-    // El proceso padre espera a que terminen sus tres hijos directos.
-    if (root == getpid()) {
-        for (int j = 0; j < 3; j++) {
-            wait(NULL); // Espera a que un proceso hijo termine.
-        }
+    if (getpid() == raiz) {
+        for (int i = 0; i < N; i++)
+            wait(NULL);
     } else {
-        wait(NULL); // Cada hijo espera a su propio hijo, si lo tiene.
+        wait(NULL);
     }
 
-    return EXIT_SUCCESS; // Termina el proceso con éxito.
+    printf("Termina %d (ppid=%d)\n", (int)getpid(), (int)getppid());
+    return EXIT_SUCCESS;
 }

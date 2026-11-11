@@ -1,79 +1,79 @@
-/* 
-Este programa en C demuestra el uso de memoria compartida para la comunicación entre procesos padre e hijo.
-El proceso padre crea un segmento de memoria compartida y espera a que el usuario ingrese mensajes, que luego
-se escriben en la memoria compartida. El proceso hijo lee continuamente de la memoria compartida y, si detecta
-un cambio en el mensaje, lo imprime. El programa se detiene cuando el usuario ingresa "quit".
+/*
+ * shm2.c — Mensajes de texto por memoria compartida
+ *
+ * El padre lee líneas del teclado y las copia en un segmento compartido.
+ * El hijo revisa el segmento cada milisegundo y, si el texto cambió, lo
+ * muestra. Ambos terminan cuando el texto es "salir".
+ *
+ * Observe: no hay ninguna sincronización, y se nota:
+ *          - si escribe dos veces la misma línea, el hijo no ve cambio;
+ *          - si el padre escribe dos líneas seguidas antes de que el hijo
+ *            mire, la primera se pierde (pruebe pegando varias líneas);
+ *          - el hijo podría leer una cadena a medio copiar.
+ *          A diferencia de una tubería, la memoria compartida no guarda
+ *          una cola de mensajes: solo el último valor escrito.
+ *
+ * Norma:    System V IPC (shmget, shmat, shmdt, shmctl), POSIX (fork, wait)
+ * Compilar: gcc -Wall -Wextra -o shm2 shm2.c
+ * Ejecutar: ./shm2
+ */
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
 
-Instrucciones para compilar y ejecutar el programa:
-1. Abre una terminal en tu sistema.
-2. Navega al directorio donde guardaste este archivo.
-3. Compila el programa con el siguiente comando:
-   gcc -o shared_memory_communication shared_memory_communication.c
-4. Ejecuta el programa compilado:
-   ./shared_memory_communication
-5. Escribe mensajes y observa cómo el proceso hijo los imprime. Escribe "quit" para terminar el programa.
+#define TAM 256
 
-*/
-
-#include <stdio.h>    // Para funciones de entrada/salida como printf y fgets
-#include <string.h>   // Para funciones de manejo de cadenas como strcpy y strcmp
-#include <stdlib.h>   // Para EXIT_SUCCESS y EXIT_FAILURE
-#include <unistd.h>   // Para fork(), getpid(), shmat(), shmdt()
-#include <sys/wait.h> // Para wait()
-#include <sys/shm.h>  // Para shmget(), shmctl(), shmat(), shmdt()
-#include <sys/stat.h> // Para constantes de modo de acceso
-
-int main() {
-    char *ptr;
-    int shm_id;
-    int shm_size = 256; // Tamaño del segmento de memoria compartida
-
-    // Crea un segmento de memoria compartida
-    shm_id = shmget(IPC_PRIVATE, shm_size, IPC_CREAT | S_IRUSR | S_IWUSR);
-
-    // Crea un proceso hijo
-    if (!fork()) {
-        // Proceso hijo
-        printf("[%d]child process started\n", getpid());
-        // Adjunta el segmento de memoria compartida al espacio de direcciones del proceso hijo
-        ptr = (char *)shmat(shm_id, 0, 0);
-        char old[256];
-        strcpy(old, ptr); // Inicializa 'old' con el contenido actual de la memoria compartida
-
-        // Bucle que se ejecuta hasta que el usuario ingresa "quit"
-        do {
-            // Si el contenido de la memoria compartida cambia, imprime el nuevo mensaje
-            if (strcmp(old, ptr) != 0) {
-                printf("<--%s\n", ptr);
-                strcpy(old, ptr); // Actualiza 'old' con el nuevo contenido
-            }
-        } while (strcmp(ptr, "quit") != 0);
-
-        printf("[%d]shm_value->%s\n", getpid(), ptr);
-        // Desadjunta el segmento de memoria compartida
-        shmdt(ptr);
-    } else {
-        // Proceso padre
-        printf("[%d]parent process started\n", getpid());
-        // Adjunta el segmento de memoria compartida al espacio de direcciones del proceso padre
-        ptr = (char *)shmat(shm_id, 0, 0);
-
-        char msg[256];
-        // Bucle que se ejecuta hasta que el usuario ingresa "quit"
-        do {
-            // Obtiene el mensaje del usuario
-            fgets(msg, 256, stdin);
-            msg[strlen(msg) - 1] = '\0'; // Elimina el salto de línea al final del mensaje
-            // Escribe el mensaje en la memoria compartida
-            strcpy(ptr, msg);
-        } while (strcmp(ptr, "quit") != 0);
-
-        // Espera a que el proceso hijo termine
-        wait(NULL);
-
-        // Desadjunta y elimina el segmento de memoria compartida
-        shmdt(ptr);
-        shmctl(shm_id, IPC_RMID, 0);
+int main(void)
+{
+    int shm_id = shmget(IPC_PRIVATE, TAM, IPC_CREAT | S_IRUSR | S_IWUSR);
+    if (shm_id == -1) {
+        perror("shmget");
+        exit(EXIT_FAILURE);
     }
+
+    char *texto = shmat(shm_id, NULL, 0);
+    if (texto == (void *)-1) {
+        perror("shmat");
+        exit(EXIT_FAILURE);
+    }
+
+    pid_t pid = fork();
+    if (pid == -1) {
+        perror("fork");
+        exit(EXIT_FAILURE);
+    }
+
+    if (pid == 0) {
+        char anterior[TAM] = "";
+        printf("[%d] hijo leyendo la memoria compartida\n", (int)getpid());
+        while (strcmp(texto, "salir") != 0) {
+            if (strcmp(texto, anterior) != 0) {
+                printf("<-- %s\n", texto);
+                strcpy(anterior, texto);
+            }
+            usleep(1000);
+        }
+        printf("[%d] hijo termina\n", (int)getpid());
+        shmdt(texto);
+        exit(EXIT_SUCCESS);
+    }
+
+    char linea[TAM];
+    printf("[%d] padre: escriba mensajes, \"salir\" para terminar\n", (int)getpid());
+    do {
+        if (fgets(linea, sizeof linea, stdin) == NULL)
+            strcpy(linea, "salir");
+        linea[strcspn(linea, "\n")] = '\0';
+        strcpy(texto, linea);
+    } while (strcmp(linea, "salir") != 0);
+
+    wait(NULL);
+    shmdt(texto);
+    shmctl(shm_id, IPC_RMID, NULL);
     return EXIT_SUCCESS;
 }

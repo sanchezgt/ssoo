@@ -1,77 +1,79 @@
-/* 
-Este programa en C demuestra la comunicación entre procesos utilizando pipes.
-Crea dos procesos hijos que escriben un valor flotante en su respectivo pipe.
-El proceso padre lee estos valores flotantes de ambos pipes y calcula su suma.
+/*
+ * pipe8.c — Reparto de trabajo entre hijos con tuberías
+ *
+ * Variante de pipe5.c organizada como reparto de trabajo: cada hijo
+ * calcula su parte (aquí, una función de su índice) y la devuelve al
+ * padre por su propia tubería. El padre espera a ambos y suma.
+ *
+ *     hijo 0 --tub[0]--> padre <--tub[1]-- hijo 1
+ *
+ * Observe: para más hijos basta con cambiar N. El padre podría enviar a
+ *          cada hijo sus datos de entrada por una segunda tubería.
+ *
+ * Norma:    POSIX (pipe, fork, read, write, close, wait)
+ * Compilar: gcc -Wall -Wextra -o pipe8 pipe8.c
+ * Ejecutar: ./pipe8
+ */
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/wait.h>
 
-Instrucciones para compilar y ejecutar el programa:
-1. Abre una terminal en tu sistema.
-2. Navega al directorio donde guardaste este archivo.
-3. Compila el programa con el siguiente comando:
-   gcc -o pipe_summation pipe_summation.c
-4. Ejecuta el programa compilado:
-   ./pipe_summation
-*/
+#define N 2
 
-#include <stdio.h>    // Para funciones de entrada/salida como printf
-#include <stdlib.h>   // Para la macro EXIT_SUCCESS
-#include <unistd.h>   // Para las funciones pipe(), fork(), read(), write()
-#include <sys/wait.h> // Para la función wait()
+static float calcular(int i)
+{
+    static const float resultados[N] = { 25.32f, 14.1f };
+    return resultados[i];
+}
 
-int main() {
-    int tub[2][2]; // Array para almacenar los descriptores de archivo de dos pipes
-    int i;         // Contador para bucles
-    pid_t root = getpid(); // ID del proceso padre
+int main(void)
+{
+    int tub[N][2];
+    int i;
 
-    // Crear dos pipes
-    for (i = 0; i < 2; ++i) {
-        pipe(tub[i]);
+    for (i = 0; i < N; i++) {
+        if (pipe(tub[i]) == -1) {
+            perror("pipe");
+            exit(EXIT_FAILURE);
+        }
     }
 
-    // Crear dos procesos hijos
-    for (i = 0; i < 2; ++i) {
-        if (!fork()) break; // Si es un proceso hijo, sale del bucle
+    for (i = 0; i < N; i++) {
+        pid_t pid = fork();
+        if (pid == -1) {
+            perror("fork");
+            exit(EXIT_FAILURE);
+        }
+        if (pid == 0)
+            break;
     }
 
-    // Proceso padre
-    if (root == getpid()) {
-        float datos[2]; // Array para almacenar los datos leídos de los pipes
-
-        // Cierra los extremos de escritura de los pipes que no se usan en el padre
-        for (i = 0; i < 2; ++i) {
-            close(tub[i][1]);
+    if (i < N) {
+        float dato = calcular(i);
+        for (int k = 0; k < N; k++) {
+            close(tub[k][0]);
+            if (k != i)
+                close(tub[k][1]);
         }
+        if (write(tub[i][1], &dato, sizeof dato) == -1)
+            perror("write");
+        printf("[%d] hijo %d --> %.2f\n", (int)getpid(), i, dato);
+        close(tub[i][1]);
+        exit(EXIT_SUCCESS);
+    }
 
-        // Leer los datos de ambos hijos
-        for (int j = 0; j < 2; ++j) {
-            read(tub[j][0], &datos[j], sizeof(float)); // Lee un float de cada pipe
-        }
-
-        // Espera a que ambos hijos terminen
+    float datos[N], suma = 0;
+    for (int k = 0; k < N; k++)
+        close(tub[k][1]);
+    for (int k = 0; k < N; k++) {
+        if (read(tub[k][0], &datos[k], sizeof datos[k]) == (ssize_t)sizeof datos[k])
+            suma += datos[k];
+        close(tub[k][0]);
+    }
+    for (int k = 0; k < N; k++)
         wait(NULL);
-        wait(NULL);
+    printf("suma total = %.2f\n", suma);
 
-        // Imprime la suma de los valores
-        printf("suma total=%f\n", datos[0] + datos[1]);
-
-    } else { // Procesos hijos
-        float dato; // Variable para almacenar el dato a escribir en el pipe
-
-        // Cierra los extremos de lectura de los pipes y el extremo de escritura no utilizado
-        close(tub[0][0]);
-        close(tub[1][0]);
-        close(tub[i == 0 ? 1 : 0][1]);
-
-        // Asigna un valor a la variable dato dependiendo de si es el primer o segundo hijo
-        if (i == 0) {
-            dato = 25.32; // f(datos_del_padre)
-        } else {
-            dato = 14.1;  // f(datos_del_padre)
-        }
-
-        // Escribe el valor de dato en el pipe correspondiente
-        write(tub[i][1], &dato, sizeof(float));
-        printf("[%d] -> %f\n", getpid(), dato);
-    }
-
-    return EXIT_SUCCESS; // Indica que el programa terminó exitosamente
+    return EXIT_SUCCESS;
 }

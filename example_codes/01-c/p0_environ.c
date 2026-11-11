@@ -1,42 +1,30 @@
 /*
-Este programa en C imprime la lista completa de variables de entorno disponibles para el proceso actual.
-Además, recupera y muestra el valor de la variable de entorno "PATH". Este programa es útil para
-diagnosticar el entorno de ejecución de un proceso y verificar las configuraciones del sistema.
+ * p0_environ.c — Variables de entorno de un proceso
+ *
+ * Cada proceso recibe del padre una copia de su entorno: una lista de
+ * cadenas "NOMBRE=valor" terminada en NULL, accesible con la variable
+ * global environ. getenv() busca un nombre concreto en esa lista.
+ *
+ * Observe: ejecute  MI_VAR=hola ./p0_environ | grep MI_VAR  y verá que
+ *          la variable existe solo para ese proceso.
+ *
+ * Norma:    POSIX (environ), ISO C (getenv)
+ * Compilar: gcc -Wall -Wextra -o p0_environ p0_environ.c
+ * Ejecutar: ./p0_environ
+ */
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
 
-Instrucciones para compilar y ejecutar el programa:
-1. Abre una terminal en tu sistema.
-2. Navega al directorio donde guardaste este archivo.
-3. Compila el programa con el siguiente comando:
-   gcc -o p0_environ p0_environ.c
-4. Ejecuta el programa compilado:
-   ./p0_environ
+extern char **environ;
 
-Las librerías incluidas proporcionan las funciones necesarias para la entrada/salida estándar y
-para la gestión de variables de entorno.
-*/
+int main(void)
+{
+    for (char **var = environ; *var != NULL; var++)
+        printf("%s\n", *var);
 
-#include <stdio.h>   // Para funciones de entrada/salida como printf.
-#include <stdlib.h>  // Para la función getenv.
-#include <unistd.h>  // Para la variable environ.
+    const char *path = getenv("PATH");
+    printf("\nPATH = %s\n", path != NULL ? path : "(no definida)");
 
-extern char **environ; // Declaración externa para la lista de variables de entorno.
-
-int main(void) {
-    // Puntero para recorrer la lista de variables de entorno.
-    char **list = environ;
-    char *var;
-
-    // Recorre la lista de variables de entorno y muestra su contenido.
-    while (*list != NULL) {
-        printf("%s\n", *list); // Imprime la variable de entorno actual.
-        list++; // Avanza al siguiente elemento de la lista.
-    }
-
-    // Obtiene el valor de la variable de entorno "PATH".
-    var = getenv("PATH");
-    // Imprime el valor de la variable de entorno "PATH".
-    printf("PATH = %s\n", var);
-
-    // Retorna EXIT_SUCCESS para indicar que el programa finalizó correctamente.
     return EXIT_SUCCESS;
 }
