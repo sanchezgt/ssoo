@@ -1,64 +1,56 @@
 /*
-Programa: Ejemplo de sincronización de hilos con mutex en C
-Descripción: Este programa crea varios hilos para incrementar una variable compartida.
-             Utiliza un mutex para sincronizar el acceso a la variable y evitar condiciones de carrera.
-             Cada hilo realiza un número determinado de incrementos en la variable compartida.
-             Al final, el programa imprime el valor final de la variable compartida.
-Instrucciones de compilación: gcc -o programa_sincronizado programa_sincronizado.c -lpthread
-Instrucciones de ejecución: ./programa_sincronizado
-*/
+ * Hilos_incremento.c — Exclusión mutua con un mutex
+ *
+ * N hilos incrementan ITER veces la misma variable global. Cada
+ * incremento se hace dentro de una sección crítica protegida por un
+ * mutex: solo un hilo a la vez puede estar entre lock y unlock.
+ *
+ * Observe: el resultado siempre es N x ITER. Comente las dos llamadas al
+ *          mutex y verá que se pierden incrementos, igual que en
+ *          05-shm/shm-concurrency.c pero entre hilos. Mida con  time  y
+ *          compare: la exactitud tiene un costo.
+ *
+ * Norma:    POSIX threads (pthread_create, pthread_join, pthread_mutex_*)
+ * Compilar: gcc -Wall -Wextra -pthread -o Hilos_incremento Hilos_incremento.c
+ * Ejecutar: ./Hilos_incremento
+ */
+#include <pthread.h>
+#include <stdio.h>
+#include <stdlib.h>
 
-#include <stdio.h>      // Incluye funciones estándar de entrada y salida
-#include <unistd.h>     // Proporciona acceso a la API POSIX del sistema operativo
-#include <stdlib.h>     // Incluye la definición de la macro EXIT_SUCCESS
-#include <pthread.h>    // Incluye las funciones y tipos para hilos POSIX
+#define N 7
+#define ITER 10000000
 
-// Prototipo de la función que será ejecutada por los hilos
-void* funcion_hilo(void* arg);
+static int valor = 0;
+static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
-// Variable compartida y su valor inicial
-int valor = 0;
-// Número máximo de iteraciones que cada hilo realizará
-int max_iter = 10000000;
-
-// Declaración del mutex para sincronizar el acceso a la variable compartida
-pthread_mutex_t mt = PTHREAD_MUTEX_INITIALIZER;
-
-int main() {
-    int maxhilos = 7; // Número máximo de hilos a crear
-    pthread_t tid[maxhilos]; // Array para almacenar los identificadores de los hilos
-
-    // Creación de los hilos secundarios
-    for (int i = 0; i < maxhilos; i++) {
-        pthread_create(&tid[i], NULL, funcion_hilo, NULL);
+static void *funcion_hilo(void *arg)
+{
+    (void)arg;
+    for (int i = 0; i < ITER; i++) {
+        pthread_mutex_lock(&mutex);
+        valor = valor + 1;
+        pthread_mutex_unlock(&mutex);
     }
-
-    printf("Hilo principal[%lu]\n", pthread_self()); // Imprime el identificador del hilo principal
-
-    // Espera a que todos los hilos secundarios terminen
-    for (int i = 0; i < maxhilos; i++) {
-        pthread_join(tid[i], NULL);
-    }
-
-    // Imprime el valor final de la variable compartida
-    printf("valor=[%d]\n", valor);
-
-    // Destruye el mutex para liberar recursos
-    pthread_mutex_destroy(&mt);
-
-    return EXIT_SUCCESS; // Finaliza el programa con éxito
+    return NULL;
 }
 
-// Función que será ejecutada por los hilos secundarios
-void* funcion_hilo(void* arg) {
-    printf("Hilo [%lu] hará [%d] iteraciones\n", pthread_self(), max_iter);
+int main(void)
+{
+    pthread_t tid[N];
 
-    // Incremento de la variable compartida con protección de mutex
-    for (int i = 0; i < max_iter; ++i) {
-        pthread_mutex_lock(&mt); // Bloquea el mutex antes de acceder a la variable
-        valor = valor + 1; // Incrementa la variable compartida
-        pthread_mutex_unlock(&mt); // Desbloquea el mutex después de acceder a la variable
+    for (int i = 0; i < N; i++) {
+        if (pthread_create(&tid[i], NULL, funcion_hilo, NULL) != 0) {
+            fprintf(stderr, "pthread_create falló\n");
+            exit(EXIT_FAILURE);
+        }
     }
+    printf("%d hilos, %d incrementos cada uno\n", N, ITER);
 
-    pthread_exit(0); // Termina la ejecución del hilo secundario
+    for (int i = 0; i < N; i++)
+        pthread_join(tid[i], NULL);
+
+    printf("valor=%d (esperado %d)\n", valor, N * ITER);
+    pthread_mutex_destroy(&mutex);
+    return EXIT_SUCCESS;
 }

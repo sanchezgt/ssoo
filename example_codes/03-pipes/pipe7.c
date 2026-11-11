@@ -1,66 +1,81 @@
-/* 
-Este programa en C demuestra la comunicación entre procesos utilizando pipes.
-Crea un proceso hijo (h0) y un proceso nieto (h1) que se comunican a través de pipes.
-El nieto escribe un valor entero en un pipe que es leído por el hijo, y luego el hijo
-escribe este valor en otro pipe que es leído por el proceso padre.
+/*
+ * pipe7.c — Cadena de procesos: nieto -> hijo -> padre
+ *
+ * Un dato viaja por dos tuberías a través de tres generaciones:
+ *
+ *     nieto --tub[1]--> hijo --tub[0]--> padre
+ *
+ * El nieto produce el valor, el hijo lo reenvía y el padre lo muestra.
+ * Ningún proceso necesita sincronización adicional: cada read() bloquea
+ * hasta que llega el dato.
+ *
+ * Observe: los descriptores se heredan en cascada. Cada proceso cierra
+ *          los que no usa para que los fines de archivo funcionen.
+ *
+ * Norma:    POSIX (pipe, fork, read, write, close, wait)
+ * Compilar: gcc -Wall -Wextra -o pipe7 pipe7.c
+ * Ejecutar: ./pipe7
+ */
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/wait.h>
 
-Instrucciones para compilar y ejecutar el programa:
-1. Abre una terminal en tu sistema.
-2. Navega al directorio donde guardaste este archivo.
-3. Compila el programa con el siguiente comando:
-   gcc -o pipe_communication pipe_communication.c
-4. Ejecuta el programa compilado:
-   ./pipe_communication
-*/
+static pid_t crear_proceso(void)
+{
+    pid_t pid = fork();
+    if (pid == -1) {
+        perror("fork");
+        exit(EXIT_FAILURE);
+    }
+    return pid;
+}
 
-#include <stdio.h>    // Para funciones de entrada/salida como printf y read/write
-#include <stdlib.h>   // Para la macro EXIT_SUCCESS
-#include <unistd.h>   // Para las funciones pipe(), fork(), close() y getpid()
-#include <sys/wait.h> // Para la función wait()
+int main(void)
+{
+    int tub[2][2];
+    int dato;
 
-int main() {
-    int tub[2][2]; // Array para almacenar los descriptores de archivo de dos pipes
+    if (pipe(tub[0]) == -1 || pipe(tub[1]) == -1) {
+        perror("pipe");
+        exit(EXIT_FAILURE);
+    }
 
-    // Crear dos pipes
-    pipe(tub[0]);
-    pipe(tub[1]);
-
-    if (!fork()) { // Proceso hijo h0
-        int data;
-
-        if (!fork()) { // Proceso nieto h1
-            data = 50; // Valor a escribir en el pipe
-            // Cierra los descriptores de archivo no necesarios en el nieto
+    if (crear_proceso() == 0) {
+        if (crear_proceso() == 0) {
+            /* Nieto: escribe en tub[1]. */
             close(tub[0][0]);
             close(tub[0][1]);
             close(tub[1][0]);
-            // Escribe el valor en el pipe
-            printf("nieto escrito %d \n", data);
-            write(tub[1][1], &data, sizeof(int));
-        } else { // Vuelve al proceso hijo h0
-            // Cierra los descriptores de archivo no necesarios en el hijo
-            close(tub[0][0]);
+            dato = 50;
+            printf("[%d] nieto escribe %d\n", (int)getpid(), dato);
+            if (write(tub[1][1], &dato, sizeof dato) == -1)
+                perror("write");
             close(tub[1][1]);
-            // Lee el valor del pipe
-            read(tub[1][0], &data, sizeof(int));
-            // Escribe el valor leído en el otro pipe
-            write(tub[0][1], &data, sizeof(int));
-            printf("leido %d \n", data);
-            // Espera a que el nieto termine
-            wait(NULL);
+            exit(EXIT_SUCCESS);
         }
-    } else { // Proceso padre
-        int data;
-        // Cierra los descriptores de archivo no necesarios en el padre
-        close(tub[1][0]);
+        /* Hijo: lee de tub[1] y reenvía por tub[0]. */
+        close(tub[0][0]);
         close(tub[1][1]);
+        if (read(tub[1][0], &dato, sizeof dato) == (ssize_t)sizeof dato) {
+            printf("[%d] hijo reenvía %d\n", (int)getpid(), dato);
+            if (write(tub[0][1], &dato, sizeof dato) == -1)
+                perror("write");
+        }
+        close(tub[1][0]);
         close(tub[0][1]);
-        // Lee el valor del pipe
-        read(tub[0][0], &data, sizeof(int));
-        printf("data=%d\n", data);
-        // Espera a que el hijo termine
         wait(NULL);
+        exit(EXIT_SUCCESS);
     }
 
-    return EXIT_SUCCESS; // Indica que el programa terminó exitosamente
+    /* Padre: lee de tub[0]. */
+    close(tub[1][0]);
+    close(tub[1][1]);
+    close(tub[0][1]);
+    if (read(tub[0][0], &dato, sizeof dato) == (ssize_t)sizeof dato)
+        printf("[%d] padre recibe %d\n", (int)getpid(), dato);
+    close(tub[0][0]);
+    wait(NULL);
+
+    return EXIT_SUCCESS;
 }

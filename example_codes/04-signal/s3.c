@@ -1,70 +1,58 @@
-/* 
-Este programa en C demuestra el uso de señales entre procesos y el manejo de procesos hijos.
-El proceso padre crea un proceso hijo y le envía una señal SIGUSR1. El proceso hijo espera
-hasta que recibe la señal y luego imprime un mensaje antes de terminar. El proceso padre
-espera a que el proceso hijo termine antes de restaurar el manejador de señales predeterminado.
+/*
+ * s3.c — El padre envía una señal al hijo (manejador heredado)
+ *
+ * El padre instala el manejador antes de fork(); el hijo lo hereda y ya
+ * está protegido desde que nace. El hijo espera con pause() y el padre,
+ * tras una pausa corta, le envía SIGUSR1.
+ *
+ * Observe: todavía queda una carrera. Si la señal llega cuando el hijo
+ *          aún no ha entrado en pause(), el manejador se ejecuta antes,
+ *          pause() espera una señal que ya pasó y el programa se queda
+ *          bloqueado. El usleep() del padre lo hace improbable, no
+ *          imposible. s4.c quita esa pausa para provocar el problema.
+ *
+ * Norma:    ISO C (signal), POSIX (fork, kill, pause, wait)
+ * Compilar: gcc -Wall -Wextra -o s3 s3.c
+ * Ejecutar: ./s3
+ */
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/wait.h>
 
-Instrucciones para compilar y ejecutar el programa:
-1. Abre una terminal en tu sistema.
-2. Navega al directorio donde guardaste este archivo.
-3. Compila el programa con el siguiente comando:
-   gcc -o signal_process signal_process.c
-4. Ejecuta el programa compilado:
-   ./signal_process
+static volatile sig_atomic_t recibida = 0;
 
-El programa imprimirá el PID del proceso padre y del hijo, indicará cuando la señal ha sido
-enviada y recibida, y cuando el proceso hijo está terminando.
-*/
-
-#include <stdio.h>    // Para funciones de entrada/salida como printf
-#include <stdlib.h>   // Para EXIT_SUCCESS y EXIT_FAILURE
-#include <unistd.h>   // Para fork(), getpid(), usleep() y pause()
-#include <sys/wait.h> // Para wait()
-#include <signal.h>   // Para signal(), SIGUSR1 y kill()
-
-// Declaración del manejador de señales
-void sighandler(int sig);
-
-int main() {
-    pid_t pidhijo;
-    void (*oldhandler)(int);
-
-    // Registra el manejador de señales personalizado para SIGUSR1
-    oldhandler = signal(SIGUSR1, sighandler);
-    if (oldhandler == SIG_ERR) {
-        perror("signal:");
-        exit(EXIT_FAILURE);
-    }
-
-    // Crea un proceso hijo
-    pidhijo = fork();
-    
-    // Manejo de errores y comportamiento del proceso hijo y padre
-    switch (pidhijo) {
-        case -1: // Error al crear el proceso hijo
-            perror("fork");
-            exit(EXIT_FAILURE);
-        case 0: // Proceso hijo
-            pause(); // Espera a recibir una señal
-            printf("[%d] Terminando\n", getpid());
-            break;
-        default: // Proceso padre
-            printf("[%d] Señal enviada\n", getpid());
-            usleep(100); // Pequeña pausa para asegurar que el hijo esté listo
-            kill(pidhijo, SIGUSR1); // Envía la señal SIGUSR1 al proceso hijo
-            wait(NULL); // Espera a que el proceso hijo termine
-    }
-
-    // Restaura el manejador de señales predeterminado para SIGUSR1
-    if (signal(SIGUSR1, oldhandler) == SIG_ERR) {
-        perror("signal:");
-        exit(EXIT_FAILURE);
-    }
-
-    return EXIT_SUCCESS; // Indica que el programa terminó exitosamente
+static void manejador(int sig)
+{
+    recibida = sig;
 }
 
-// Implementación del manejador de señales personalizado
-void sighandler(int sig) {
-    printf("[%d] sig %d capturada\n", getpid(), sig);
+int main(void)
+{
+    void (*anterior)(int) = signal(SIGUSR1, manejador);
+    if (anterior == SIG_ERR) {
+        perror("signal");
+        exit(EXIT_FAILURE);
+    }
+
+    pid_t pid = fork();
+    switch (pid) {
+    case -1:
+        perror("fork");
+        exit(EXIT_FAILURE);
+    case 0:
+        pause();
+        printf("[%d] hijo: señal %d capturada. Terminando\n", (int)getpid(), (int)recibida);
+        exit(EXIT_SUCCESS);
+    default:
+        usleep(100000);
+        kill(pid, SIGUSR1);
+        printf("[%d] padre: señal enviada\n", (int)getpid());
+        wait(NULL);
+        break;
+    }
+
+    signal(SIGUSR1, anterior);
+    return EXIT_SUCCESS;
 }

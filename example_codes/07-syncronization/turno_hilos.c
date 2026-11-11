@@ -1,79 +1,89 @@
 /*
-Programa: Ejecución secuencial de hilos sin sincronización en C
-Descripción: Este programa crea una cantidad especificada de hilos y los ejecuta secuencialmente.
-             Cada hilo espera activamente su turno para ejecutarse, basado en una variable compartida 'turno'.
-             El programa mide el tiempo total de ejecución de todos los hilos.
-             Nota: Este enfoque puede causar condiciones de carrera y no es un método recomendado para sincronizar hilos.
-Instrucciones de compilación: gcc -o ejecucion_secuencial ejecucion_secuencial.c -lpthread
-Instrucciones de ejecución: ./ejecucion_secuencial
-*/
+ * turno_hilos.c — Turnos con espera activa
+ *
+ * Se crean N hilos que deben trabajar en orden: el hilo i solo avanza
+ * cuando la variable global turno vale i, trabaja 10 ms y pasa el turno.
+ * Mientras no es su turno, cada hilo da vueltas en un ciclo vacío
+ * preguntando por la variable.
+ *
+ * Observe: el orden es correcto, pero cada hilo que espera ocupa una CPU
+ *          sin hacer nada útil. El tiempo de CPU sale mucho mayor que el
+ *          tiempo real, y con más hilos que núcleos se vuelve muy lento.
+ *          Compare con turno_hilos_varcond.c, que espera con una variable de condición.
+ *          volatile solo impide que el compilador saque la lectura del
+ *          ciclo; no es un mecanismo de sincronización.
+ *
+ * Norma:    POSIX threads (pthread_create, pthread_join),
+ *           POSIX (clock_gettime), ISO C (clock)
+ * Compilar: gcc -Wall -Wextra -pthread -o turno_hilos turno_hilos.c
+ * Ejecutar: ./turno_hilos
+ */
+#include <pthread.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+#include <unistd.h>
 
-#include <stdio.h>      // Incluye funciones estándar de entrada y salida
-#include <stdlib.h>     // Incluye funciones de manejo de memoria dinámica y control de procesos
-#include <pthread.h>    // Incluye las funciones y tipos para hilos POSIX
-#include <time.h>       // Incluye funciones para medir el tiempo
+#define TRABAJO_US 10000                /* 10 ms de trabajo en cada turno */
 
-// Estructura para pasar datos a los hilos
-struct DatoHilo {
-    int dato;
-};
+static volatile int turno = 0;
 
-// Prototipo de la función que será ejecutada por los hilos
-void *funhilos(void *);
+static void *funcion_hilo(void *arg)
+{
+    int mi_turno = *(int *)arg;
 
-// Variable global para controlar el turno de ejecución de los hilos
-int turno = 0;
+    while (turno != mi_turno)
+        ;                                   /* espera activa */
 
-int main() {
-    int nhilos = 0, i = 0; // Contador de hilos y variable de iteración
-    struct DatoHilo *datohilo; // Puntero para los datos de los hilos
-    clock_t t_ini, t_fin; // Variables para medir el tiempo de ejecución
-    double secs; // Variable para almacenar el tiempo en segundos
-    pthread_t *pidhilos = NULL; // Puntero para almacenar los identificadores de los hilos
-
-    // Solicita al usuario el número de hilos a crear
-    printf("Numero de hilos\n");
-    scanf("%d", &nhilos);
-
-    // Creación de hilos
-    pidhilos = (pthread_t *)calloc(nhilos, sizeof(pthread_t));
-    for (i = 0; i < nhilos; i++) {
-        datohilo = (struct DatoHilo*)malloc(sizeof(struct DatoHilo));
-        datohilo->dato = i;
-        pthread_create(&pidhilos[i], NULL, funhilos, (void*)datohilo);
-    }
-
-    // Inicia el contador de tiempo
-    t_ini = clock();
-
-    // Espera a que todos los hilos terminen
-    for (i = 0; i < nhilos; i++)
-        pthread_join(pidhilos[i], NULL);
-
-    // Finaliza el contador de tiempo y calcula la duración
-    t_fin = clock();
-    secs = (double)(t_fin - t_ini) / CLOCKS_PER_SEC;
-    printf("%.16g milisegundos\n", secs * 1000.0);
-
-    // Libera la memoria de los identificadores de los hilos
-    free(pidhilos);
-
-    return 0;
+    printf("hilo %d\n", mi_turno);
+    usleep(TRABAJO_US);
+    turno = turno + 1;
+    return NULL;
 }
 
-void *funhilos(void *arg) {
-    int myturno = ((struct DatoHilo *)arg)->dato; // Obtiene el turno del hilo
+static double segundos_reales(void)
+{
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return (double)t.tv_sec + (double)t.tv_nsec / 1e9;
+}
 
-    // Espera activamente hasta que sea su turno
-    while (turno != myturno); // No se recomienda este tipo de espera activa
+int main(void)
+{
+    int n;
 
-    // Sección crítica: es el turno de este hilo
-    printf("Hilo turno %d\t[%u]\n", myturno, (unsigned int)pthread_self());
-    turno++; // Incrementa el turno para el siguiente hilo
+    printf("Número de hilos: ");
+    fflush(stdout);
+    if (scanf("%d", &n) != 1 || n < 1) {
+        fprintf(stderr, "Se esperaba un entero positivo\n");
+        exit(EXIT_FAILURE);
+    }
 
-    // Libera la memoria asignada para los datos del hilo
-    free(arg);
+    pthread_t *tid = calloc((size_t)n, sizeof *tid);
+    int *id = calloc((size_t)n, sizeof *id);
+    if (tid == NULL || id == NULL) {
+        perror("calloc");
+        exit(EXIT_FAILURE);
+    }
 
-    // Termina la ejecución del hilo
-    pthread_exit(0);
+    double real0 = segundos_reales();
+    clock_t cpu0 = clock();
+
+    for (int i = 0; i < n; i++) {
+        id[i] = i;
+        if (pthread_create(&tid[i], NULL, funcion_hilo, &id[i]) != 0) {
+            fprintf(stderr, "pthread_create falló\n");
+            exit(EXIT_FAILURE);
+        }
+    }
+    for (int i = 0; i < n; i++)
+        pthread_join(tid[i], NULL);
+
+    printf("tiempo real: %.1f ms   tiempo de CPU: %.1f ms\n",
+           (segundos_reales() - real0) * 1000.0,
+           (double)(clock() - cpu0) * 1000.0 / CLOCKS_PER_SEC);
+
+    free(tid);
+    free(id);
+    return EXIT_SUCCESS;
 }

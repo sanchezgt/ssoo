@@ -1,76 +1,70 @@
-/* 
-Este programa en C demuestra la comunicación entre procesos usando señales en un entorno Unix.
-El proceso padre crea dos procesos hijos. El primer hijo envía una señal al segundo hijo, y luego
-el segundo hijo envía una señal de vuelta al padre. Cada proceso espera recibir una señal antes
-de continuar y luego imprime su identificador de proceso (PID) antes de terminar.
+/*
+ * s6.c — Anillo de señales entre tres procesos
+ *
+ * El padre crea dos hijos. Una señal SIGUSR1 recorre el anillo:
+ *
+ *     padre --> hijo 1 --> hijo 0 --> padre
+ *
+ * Cada proceso espera con pause(), imprime su PID y pasa la señal al
+ * siguiente. El manejador está vacío: solo sirve para que la señal
+ * despierte a pause() en lugar de terminar el proceso.
+ *
+ * Observe: el hijo 1 conoce el PID del hijo 0 porque nació después y
+ *          heredó el arreglo ya lleno; el hijo 0 no conoce el del hijo 1.
+ *          La espera inicial del padre da tiempo a que los hijos entren
+ *          en pause() (ver la carrera en s4.c).
+ *
+ * Norma:    ISO C (signal), POSIX (fork, kill, pause, wait)
+ * Compilar: gcc -Wall -Wextra -o s6 s6.c
+ * Ejecutar: ./s6
+ */
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/wait.h>
 
-Instrucciones para compilar y ejecutar el programa:
-1. Abre una terminal en tu sistema.
-2. Navega al directorio donde guardaste este archivo.
-3. Compila el programa con el siguiente comando:
-   gcc -o signal_communication signal_communication.c
-4. Ejecuta el programa compilado:
-   ./signal_communication
+#define N 2
 
-El programa imprimirá el PID del proceso padre y de los hijos, y mostrará el orden en que las señales
-son enviadas y recibidas entre ellos.
-*/
+static void manejador(int sig)
+{
+    (void)sig;
+}
 
-#include <stdio.h>    // Para funciones de entrada/salida como printf
-#include <stdlib.h>   // Para EXIT_SUCCESS y EXIT_FAILURE
-#include <unistd.h>   // Para fork(), getpid(), getppid(), pause() y usleep()
-#include <sys/wait.h> // Para wait()
-#include <signal.h>   // Para signal(), SIGUSR1 y kill()
+int main(void)
+{
+    pid_t hijo[N];
+    pid_t raiz = getpid();
+    int i;
 
-// Declaración del manejador de señales vacío
-void sighandler(int sig);
-
-int main() {
-    pid_t pidhijo[2], root;
-    int i, j;
-    
-    // Registra el manejador de señales vacío para SIGUSR1
-    oldhandler = signal(SIGUSR1, sighandler);
-    if (oldhandler == SIG_ERR) {
-        perror("signal:");
+    if (signal(SIGUSR1, manejador) == SIG_ERR) {
+        perror("signal");
         exit(EXIT_FAILURE);
     }
-    
-    root = getpid(); // Guarda el PID del proceso padre
-    for (i = 0; i < 2; i++) {
-        pidhijo[i] = fork();
-        if (pidhijo[i] == -1) {
-            perror("fork:");
+
+    for (i = 0; i < N; i++) {
+        hijo[i] = fork();
+        if (hijo[i] == -1) {
+            perror("fork");
             exit(EXIT_FAILURE);
         }
-        if (pidhijo[i] == 0) { // Si es un proceso hijo, sale del bucle
+        if (hijo[i] == 0)
             break;
-        }
     }
-    
-    if (root == getpid()) {
-        // Proceso padre
-        printf("Padre[%d]\n", getpid());
-        usleep(100);
-        kill(pidhijo[1], SIGUSR1); // Envía señal al segundo hijo
-        pause(); // Espera recibir señal del primer hijo
-        printf("Padre[%d]\n", getpid());
-        for (j = 0; j < 2; j++) wait(NULL); // Espera a que terminen ambos hijos
+
+    if (getpid() == raiz) {
+        printf("padre  [%d] inicia\n", (int)getpid());
+        usleep(100000);
+        kill(hijo[N - 1], SIGUSR1);
+        pause();
+        printf("padre  [%d] recibe y termina\n", (int)getpid());
+        for (int k = 0; k < N; k++)
+            wait(NULL);
     } else {
-        // Procesos hijos
-        pause(); // Espera recibir señal
-        printf("hijo[%d]\n", getpid());
-        if (i == 1) {
-            kill(pidhijo[0], SIGUSR1); // Segundo hijo envía señal al primer hijo
-        } else {
-            kill(getppid(), SIGUSR1); // Primer hijo envía señal al padre
-        }
+        pause();
+        printf("hijo %d [%d]\n", i, (int)getpid());
+        kill(i > 0 ? hijo[i - 1] : getppid(), SIGUSR1);
     }
 
     return EXIT_SUCCESS;
-}
-
-// Implementación del manejador de señales vacío
-void sighandler(int sig) {
-    // No se realiza ninguna acción al capturar la señal
 }

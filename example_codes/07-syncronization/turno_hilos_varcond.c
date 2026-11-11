@@ -1,94 +1,99 @@
 /*
-Programa: Ejecución secuencial de hilos usando condiciones en C
-Descripción: Este programa crea una cantidad especificada de hilos y los ejecuta secuencialmente.
-             Cada hilo espera su turno para ejecutarse, garantizado por variables de condición y un mutex.
-             El programa mide el tiempo total de ejecución de todos los hilos.
-Instrucciones de compilación: gcc -o ejecucion_secuencial ejecucion_secuencial.c -lpthread
-Instrucciones de ejecución: ./ejecucion_secuencial
-*/
+ * turno_hilos_varcond.c — Turnos con mutex y variable de condición
+ *
+ * Mismo problema que turno_hilos.c: el hilo i debe imprimir cuando turno vale i.
+ * Aquí cada hilo que no tiene el turno se duerme en pthread_cond_wait(),
+ * que libera el mutex mientras espera. Al terminar su turno, el hilo
+ * incrementa turno y despierta a todos con pthread_cond_broadcast(); cada
+ * uno revisa de nuevo la condición en el while.
+ *
+ * Observe: el tiempo de CPU es pequeño aunque haya muchos hilos: los
+ *          que esperan duermen y no consumen CPU. El trabajo del turno
+ *          (usleep) se hace fuera del mutex. Se usa broadcast y no signal
+ *          porque solo uno de los dormidos es el siguiente, y signal
+ *          podría despertar a otro.
+ *
+ * Norma:    POSIX threads (pthread_create, pthread_join, pthread_mutex_*,
+ *           pthread_cond_*), POSIX (clock_gettime), ISO C (clock)
+ * Compilar: gcc -Wall -Wextra -pthread -o turno_hilos_varcond turno_hilos_varcond.c
+ * Ejecutar: ./turno_hilos_varcond
+ */
+#include <pthread.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+#include <unistd.h>
 
-#include <stdio.h>      // Incluye funciones estándar de entrada y salida
-#include <stdlib.h>     // Incluye funciones de manejo de memoria dinámica y control de procesos
-#include <pthread.h>    // Incluye las funciones y tipos para hilos POSIX
-#include <time.h>       // Incluye funciones para medir el tiempo
+#define TRABAJO_US 10000                /* 10 ms de trabajo en cada turno */
 
-// Estructura para pasar datos a los hilos
-struct DatoHilo {
-    int dato;
-};
+static int turno = 0;
+static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t cambio = PTHREAD_COND_INITIALIZER;
 
-// Prototipo de la función que será ejecutada por los hilos
-void *funhilos(void *);
+static void *funcion_hilo(void *arg)
+{
+    int mi_turno = *(int *)arg;
 
-// Variables globales para controlar el turno y sincronización de hilos
-int turno = 0;
-pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_cond_t  cond  = PTHREAD_COND_INITIALIZER;
-
-int main() {
-    clock_t t_ini, t_fin; // Variables para medir el tiempo de ejecución
-    double secs; // Variable para almacenar el tiempo en segundos
-    int nhilos = 0, i = 0; // Contador de hilos y variable de iteración
-    pthread_t *pidhilos = NULL; // Puntero para almacenar los identificadores de los hilos
-    struct DatoHilo *datohilo; // Puntero para los datos de los hilos
-
-    // Solicita al usuario el número de hilos a crear
-    printf("Numero de hilos\n");
-    scanf("%d", &nhilos);
-
-    // Creación de hilos
-    pidhilos = (pthread_t *)calloc(nhilos, sizeof(pthread_t));
-    for (i = 0; i < nhilos; i++) {
-        datohilo = (struct DatoHilo*)malloc(sizeof(struct DatoHilo));
-        datohilo->dato = i;
-        pthread_create(&pidhilos[i], NULL, funhilos, (void*)datohilo);
-    }
-
-    // Inicia el contador de tiempo
-    t_ini = clock();
-
-    // Espera a que todos los hilos terminen
-    for (i = 0; i < nhilos; i++)
-        pthread_join(pidhilos[i], NULL);
-
-    // Finaliza el contador de tiempo y calcula la duración
-    t_fin = clock();
-    secs = (double)(t_fin - t_ini) / CLOCKS_PER_SEC;
-    printf("%.16g milisegundos\n", secs * 1000.0);
-
-    // Libera la memoria de los identificadores de los hilos
-    free(pidhilos);
-
-    // Destruye el mutex y la variable de condición
-    pthread_mutex_destroy(&mutex);
-    pthread_cond_destroy(&cond);
-
-    return 0;
-}
-
-void *funhilos(void *arg) {
-    int myturno = ((struct DatoHilo *)arg)->dato; // Obtiene el turno del hilo
-
-    // Bloquea el mutex para acceder a la variable 'turno'
     pthread_mutex_lock(&mutex);
-
-    // Espera hasta que sea su turno
-    while (turno != myturno)
-        pthread_cond_wait(&cond, &mutex);
-
-    // Sección crítica: es el turno de este hilo
-    printf("Hilo turno %d\t[%u]\n", myturno, (unsigned int)pthread_self());
-    turno++;
-
-    // Notifica a todos los hilos que 'turno' ha cambiado
-    pthread_cond_broadcast(&cond);
-
-    // Desbloquea el mutex
+    while (turno != mi_turno)
+        pthread_cond_wait(&cambio, &mutex);
     pthread_mutex_unlock(&mutex);
 
-    // Libera la memoria asignada para los datos del hilo
-    free(arg);
+    printf("hilo %d\n", mi_turno);
+    usleep(TRABAJO_US);
 
-    // Termina la ejecución del hilo
-    pthread_exit(0);
+    pthread_mutex_lock(&mutex);
+    turno = turno + 1;
+    pthread_cond_broadcast(&cambio);
+    pthread_mutex_unlock(&mutex);
+    return NULL;
+}
+
+static double segundos_reales(void)
+{
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return (double)t.tv_sec + (double)t.tv_nsec / 1e9;
+}
+
+int main(void)
+{
+    int n;
+
+    printf("Número de hilos: ");
+    fflush(stdout);
+    if (scanf("%d", &n) != 1 || n < 1) {
+        fprintf(stderr, "Se esperaba un entero positivo\n");
+        exit(EXIT_FAILURE);
+    }
+
+    pthread_t *tid = calloc((size_t)n, sizeof *tid);
+    int *id = calloc((size_t)n, sizeof *id);
+    if (tid == NULL || id == NULL) {
+        perror("calloc");
+        exit(EXIT_FAILURE);
+    }
+
+    double real0 = segundos_reales();
+    clock_t cpu0 = clock();
+
+    for (int i = 0; i < n; i++) {
+        id[i] = i;
+        if (pthread_create(&tid[i], NULL, funcion_hilo, &id[i]) != 0) {
+            fprintf(stderr, "pthread_create falló\n");
+            exit(EXIT_FAILURE);
+        }
+    }
+    for (int i = 0; i < n; i++)
+        pthread_join(tid[i], NULL);
+
+    printf("tiempo real: %.1f ms   tiempo de CPU: %.1f ms\n",
+           (segundos_reales() - real0) * 1000.0,
+           (double)(clock() - cpu0) * 1000.0 / CLOCKS_PER_SEC);
+    pthread_mutex_destroy(&mutex);
+    pthread_cond_destroy(&cambio);
+
+    free(tid);
+    free(id);
+    return EXIT_SUCCESS;
 }

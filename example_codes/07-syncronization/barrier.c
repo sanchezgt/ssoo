@@ -1,61 +1,69 @@
+/*
+ * barrier.c — Barrera: esperar a que todos lleguen
+ *
+ * Cada hilo trabaja un tiempo distinto (aleatorio, 1 a 6 s) y luego llama
+ * a pthread_barrier_wait(). Ningún hilo pasa de la barrera hasta que los
+ * N hilos hayan llegado a ella; el último en llegar libera a todos.
+ *
+ * Observe: los mensajes "hecho" salen escalonados, pero todos los
+ *          "continúa" salen juntos cuando termina el hilo más lento.
+ *          Cada hilo usa su propia semilla con rand_r(), porque rand() no
+ *          es seguro entre hilos.
+ *
+ * Norma:    POSIX threads (pthread_barrier_*, pthread_create, pthread_join)
+ * Compilar: gcc -Wall -Wextra -pthread -o barrier barrier.c
+ * Ejecutar: ./barrier
+ */
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
-#include <pthread.h>
 #include <time.h>
+#include <unistd.h>
 
-#define NTHREADS 6
+#define N 6
 
-pthread_barrier_t mybarrier;
-void* funcionHilo(void *param);
+static pthread_barrier_t barrera;
 
+struct param {
+    int id;
+    unsigned int semilla;
+};
 
-int main() {
-  int i;
-  pthread_t hilos[NTHREADS];
-  int       ids[NTHREADS];
+static void *funcion_hilo(void *arg)
+{
+    struct param *p = arg;
+    int espera = 1 + rand_r(&p->semilla) % 6;
 
-  srand(time(NULL));
-  
-  pthread_barrier_init(&mybarrier, NULL, 6);
-  
+    printf("hilo %d: trabajando %d s\n", p->id, espera);
+    sleep((unsigned)espera);
+    printf("hilo %d: hecho, espera en la barrera\n", p->id);
 
-  for (i=0; i < NTHREADS; i++) {
-    ids[i] = i;
-    pthread_create(&hilos[i], NULL, funcionHilo, &ids[i]);
-  }
-  for (i=0; i < NTHREADS; i++) {
-    pthread_join(hilos[i], NULL);
-  }
-  pthread_barrier_destroy(&mybarrier);
-  return 0;
+    pthread_barrier_wait(&barrera);
+
+    printf("hilo %d: continúa\n", p->id);
+    return NULL;
 }
 
+int main(void)
+{
+    pthread_t tid[N];
+    struct param param[N];
+    unsigned int base = (unsigned int)time(NULL);
 
-void* funcionHilo(void *param) {
-  int tid = *(int*)param;
-  int espera = 1 + rand() % 6;
-  
- 
-  printf("Hilo %d: bloqueado por %d segundos.\n", tid, espera);
-  sleep(espera); //do_work();
-  printf("hilo %d: hecho...\n", tid);
- 
+    pthread_barrier_init(&barrera, NULL, N);
 
-  pthread_barrier_wait(&mybarrier);
+    for (int i = 0; i < N; i++) {
+        param[i].id = i;
+        param[i].semilla = base + (unsigned int)i;
+        if (pthread_create(&tid[i], NULL, funcion_hilo, &param[i]) != 0) {
+            fprintf(stderr, "pthread_create falló\n");
+            exit(EXIT_FAILURE);
+        }
+    }
 
-  printf("@@@@---->hilo %d: terminando!\n", tid);
- 
-  
+    for (int i = 0; i < N; i++)
+        pthread_join(tid[i], NULL);
 
-  pthread_exit(0);
-
-  return NULL;
+    pthread_barrier_destroy(&barrera);
+    return EXIT_SUCCESS;
 }
-
-
-
-
-
-
-

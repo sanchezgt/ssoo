@@ -1,56 +1,55 @@
 /*
-Programa: Ejemplo de creación de múltiples hilos con asignación dinámica en C
-Descripción: Este programa crea un número determinado de hilos secundarios y les pasa una estructura
-             con asignación dinámica de memoria como argumento. Cada hilo imprime su identificador
-             y el valor entero contenido en la estructura. El programa ilustra cómo pasar datos
-             dinámicamente asignados a hilos y la importancia de liberar dicha memoria adecuadamente.
-Instrucciones de compilación: gcc -o ejemplo_hilos_dinamicos ejemplo_hilos_dinamicos.c -lpthread
-Instrucciones de ejecución: ./ejemplo_hilos_dinamicos
-*/
+ * Hilos5.c — Un dato propio para cada hilo
+ *
+ * Corrige Hilos4.c: en cada vuelta del ciclo se reserva una estructura
+ * nueva con malloc(), de modo que cada hilo recibe su propia copia. Cada
+ * hilo libera su estructura cuando termina de usarla.
+ *
+ * Observe: todos los valores 0..N-1 aparecen exactamente una vez, aunque
+ *          en cualquier orden.
+ *
+ * Norma:    POSIX threads (pthread_create, pthread_join)
+ * Compilar: gcc -Wall -Wextra -pthread -o Hilos5 Hilos5.c
+ * Ejecutar: ./Hilos5
+ */
+#include <pthread.h>
+#include <stdio.h>
+#include <stdlib.h>
 
-#include <stdio.h>      // Incluye funciones estándar de entrada y salida
-#include <unistd.h>     // Proporciona acceso a la API POSIX del sistema operativo
-#include <stdlib.h>     // Incluye funciones de manejo de memoria dinámica y la macro EXIT_SUCCESS
-#include <pthread.h>    // Incluye las funciones y tipos para hilos POSIX
+#define N 4
 
-// Prototipo de la función que será ejecutada por los hilos
-void* funcion_hilo(void* arg);
-
-// Definición de la estructura que se pasará a los hilos
 struct nodo {
-    int a;	
+    int a;
 };
 
-int main() {
-    int maxhilos = 4; // Número máximo de hilos a crear
-    pthread_t tid[maxhilos]; // Array para almacenar los identificadores de los hilos
-    struct nodo *dato; // Puntero a la estructura nodo
-
-    // Creación de los hilos secundarios con asignación dinámica de la estructura
-    for (int i = 0; i < maxhilos; i++) {
-        dato = (struct nodo*)malloc(sizeof(struct nodo)); // Asignación dinámica de memoria para la estructura
-        if (dato == NULL) {
-            perror("Error en malloc");
-            exit(EXIT_FAILURE);
-        }
-        dato->a = i; // Asignación del valor a la estructura
-        pthread_create(&tid[i], NULL, funcion_hilo, (void*)dato);
-    }
-
-    printf("Hilo principal[%lu]\n", pthread_self()); // Imprime el identificador del hilo principal
-
-    // Espera a que todos los hilos secundarios terminen
-    for (int i = 0; i < maxhilos; i++) {
-        pthread_join(tid[i], NULL);
-    }
-
-    return EXIT_SUCCESS; // Finaliza el programa con éxito
+static void *funcion_hilo(void *arg)
+{
+    struct nodo *p = arg;
+    printf("Hilo [%lu] dato=%d\n", (unsigned long)pthread_self(), p->a);
+    free(p);
+    return NULL;
 }
 
-// Función que será ejecutada por los hilos secundarios
-void* funcion_hilo(void* arg) {
-    struct nodo* p = (struct nodo *)arg; // Conversión del argumento a un puntero a la estructura nodo
-    printf("Hilo [%lu] dato[%d]\n", pthread_self(), p->a); // Imprime el identificador del hilo y el valor de la estructura
-    free(p); // Libera la memoria asignada dinámicamente para la estructura
-    pthread_exit(0); // Termina la ejecución del hilo secundario
+int main(void)
+{
+    pthread_t tid[N];
+
+    for (int i = 0; i < N; i++) {
+        struct nodo *dato = malloc(sizeof *dato);
+        if (dato == NULL) {
+            perror("malloc");
+            exit(EXIT_FAILURE);
+        }
+        dato->a = i;
+        if (pthread_create(&tid[i], NULL, funcion_hilo, dato) != 0) {
+            fprintf(stderr, "pthread_create falló\n");
+            exit(EXIT_FAILURE);
+        }
+    }
+    printf("Hilo principal [%lu]\n", (unsigned long)pthread_self());
+
+    for (int i = 0; i < N; i++)
+        pthread_join(tid[i], NULL);
+
+    return EXIT_SUCCESS;
 }
